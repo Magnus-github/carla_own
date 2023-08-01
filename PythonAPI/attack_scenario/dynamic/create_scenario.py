@@ -161,23 +161,29 @@ class GTBoundingBoxesAndPatchAttack(object):
                         width = x_max - x_min
                         height = y_max - y_min
 
-                        y_min_red = int(y_min + 0.1*height)
-                        y_max_red = int(y_max - 0.1*height)
-                        x_min_red = int(x_min + 0.1*width)
-                        x_max_red = int(x_max - 0.1*width)
+                        y_min_red = int(y_min + 0.2*height)
+                        y_max_red = int(y_max - 0.7*height)
+                        x_min_red = int(x_min + 0.45*width)
+                        x_max_red = int(x_max - 0.45*width)
+
+                        if depth_img[y_min_red:y_max_red, x_min_red:x_max_red].shape[0] == 0:
+                            y_max_red += 1
+                        if depth_img[y_min_red:y_max_red, x_min_red:x_max_red].shape[1] == 0:
+                            x_max_red += 1
+
+                        print(depth_img[y_min_red:y_max_red, x_min_red:x_max_red].shape)
 
                         threshold = 0.5
                         count = 0
                         for row in depth_img[y_min_red:y_max_red, x_min_red:x_max_red]:
                             for px in row:
-                                print("DEPTH: ", px)
-                                print("DIFFX: ", bb_camframe[0,0])
+                                # print("DEPTH: ", px)
+                                # print("POS: ", bb_camframe)
                                 if px < bb_camframe[0,0] - threshold:
                                     count+=1
-                                    if count > 0.8*depth_img[y_min_red:y_max_red, x_min_red:x_min_red].size:
+                                    if count >= depth_img[y_min_red:y_max_red, x_min_red:x_min_red].size -1:
                                         return []
                         
-
                         bbox_verts = [x_min, y_min, x_max, y_max]
 
         return bbox_verts
@@ -239,11 +245,12 @@ class GTBoundingBoxesAndPatchAttack(object):
         return matrix
     
     @staticmethod
-    def __world_to_sensor(cords, sensor):
+    def __world_to_sensor(coords, sensor):
         sensor_world_matrix = GTBoundingBoxesAndPatchAttack.__get_matrix(sensor.get_transform())
         world_sensor_matrix = np.linalg.inv(sensor_world_matrix)
-        sensor_cords = np.dot(world_sensor_matrix, cords.T)
-        return sensor_cords
+        sensor_coords = np.dot(world_sensor_matrix, coords.reshape((4,1)))
+
+        return sensor_coords
 
 class DynamicAttackScenario(object):
     def __init__(self) -> None:
@@ -500,6 +507,7 @@ class DynamicAttackScenario(object):
             cv2.namedWindow('CameraFeed', cv2.WINDOW_AUTOSIZE)
             cv2.imshow('CameraFeed',img)
             cv2.waitKey(1)
+            depthConverter = carla.ColorConverter.Depth
 
             while True:
                 self.world.tick()
@@ -507,19 +515,17 @@ class DynamicAttackScenario(object):
 
                 # Retrieve and reshape the image
                 image = self.image_queue.get()
+                depth_image = self.depth_img_queue.get()
                 img = np.reshape(np.copy(image.raw_data), (image.height, image.width, 4))
                 bb_img = img.copy()
 
-                depth_image = self.depth_img_queue.get()
+                depth_image.convert(depthConverter)
                 depth_img = img = np.reshape(np.copy(depth_image.raw_data), (depth_image.height, depth_image.width, 4))
                 # convert BGRA image to image with pixels containing depth in meters
-                R = depth_img[:,:,2]
-                G = depth_img[:,:,1]
-                B = depth_img[:,:,0]
-                normalized = (R + G * 256 + B * 256 * 256) / (256 * 256 * 256 - 1)
+                BGR = depth_img[:,:,:3]
+                RGB = BGR[:,:,::-1]
+                normalized = ((RGB[:,:,0] + RGB[:,:,1]*256.0 + RGB[:,:,2]*256.0*256.0)/((256.0*256.0*256.0) - 1))
                 in_meters = 1000 * normalized
-                # print("SHAPE DEPTH", in_meters.shape)
-
 
                 # Save frame to annotations json
                 frame_file = "{:05d}.png".format(frame_number)
