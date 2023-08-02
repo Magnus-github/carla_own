@@ -10,7 +10,6 @@ try:
 except IndexError:
     pass
 
-
 # ==============================================================================
 # -- imports -------------------------------------------------------------------
 # ==============================================================================
@@ -59,6 +58,7 @@ PEDESTRIAN_SPAWN_LIST = [carla.Transform(carla.Location(x=-32.164324, y=-75.2039
                          carla.Transform(carla.Location(x=-31.164324, y=-44.203926, z=0.2), carla.Rotation(pitch=0.000000, yaw=0.000000, roll=0.000000)),]
 
 
+AREAS = []
 # =============================================================================
 # -- get bounding boxes -------------------------------------------------------
 # =============================================================================
@@ -72,8 +72,15 @@ class GTBoundingBoxes(object):
         for label in labels:
             bbs = list(world.get_level_bbs(label))
             for bb in bbs:
-                bb_verts = GTBoundingBoxes.__filter_bbs(bb, vehicle, camera, K)
-                bounding_boxes.append(bb_verts)
+                bb_dict = dict()
+                if label == carla.CityObjectLabel.Pedestrians:
+                    bb_verts, bb_location = GTBoundingBoxes.__filter_bbs(bb, vehicle, camera, K, get_loc=True)
+                    if bb_verts:
+                        bb_dict["location"] = bb_location
+                else:
+                    bb_verts = GTBoundingBoxes.__filter_bbs(bb, vehicle, camera, K)
+                bb_dict["vertices"] = bb_verts
+                bounding_boxes.append(bb_dict)
 
                 if img is not None and bb_verts:
                     bb_verts.append(label)
@@ -88,7 +95,7 @@ class GTBoundingBoxes(object):
         return bounding_boxes
 
     @staticmethod
-    def __filter_bbs(bb, ego_vehicle, camera, K):
+    def __filter_bbs(bb, ego_vehicle, camera, K, get_loc=False):
         bbox_verts = []
 
         # Get the camera matrix 
@@ -109,6 +116,9 @@ class GTBoundingBoxes(object):
 
             if forward_vec.dot(ray) > 1:
                 verts = [v for v in bb.get_world_vertices(carla.Transform())]
+
+                area = bb.extent.x*2 * bb.extent.z*2
+                AREAS.append(area)
 
                 x_max = -10000
                 x_min = 10000
@@ -133,6 +143,9 @@ class GTBoundingBoxes(object):
                     # make sure bb is in image!
                     if x_min > 0 and x_max < image_w and y_min > 0 and y_max < image_h:
                         bbox_verts = [x_min, y_min, x_max, y_max]
+
+        if get_loc:
+            return bbox_verts, bb.location 
 
         return bbox_verts
                 
@@ -429,7 +442,7 @@ class StaticAttackScenario(object):
         self.car = self.world.try_spawn_actor(vehicle_bp, transform)
 
         camera_bp = self.bp_lib.find('sensor.camera.rgb')
-        camera_init_trans = carla.Transform(carla.Location(x=1.5, z=2.4))
+        camera_init_trans = carla.Transform(carla.Location(x=1.0, z=2.0), carla.Rotation(yaw=0, pitch=0))
         self.camera = self.world.spawn_actor(camera_bp, camera_init_trans, attach_to=self.car)
         self.camera.listen(self.image_queue.put)
 
@@ -458,7 +471,7 @@ class StaticAttackScenario(object):
         car_location = np.array([l.x, l.y, l.z])
         fw = self.car.get_transform().rotation.get_forward_vector()
         forward = np.array([fw.x, fw.y, fw.z])
-        min_fw = car_location + 4*forward
+        min_fw = car_location + 5*forward
         max_fw = car_location + 10*forward
         rv = self.car.get_transform().rotation.get_right_vector()
         right = np.array([rv.x, rv.y, rv.z])
@@ -467,11 +480,10 @@ class StaticAttackScenario(object):
 
         return verteces
     
-    def is_in_FOI(self, actor, FOI):
-        pos = actor.get_location()
-        actor_location = np.array([pos.x, pos.y, pos.z])
-        if FOI[2][0] < actor_location[0] < FOI[0][0]:
-            if FOI[1][1] < actor_location[1] < FOI[0][1]:
+    def is_in_FOI(self, location, FOI):
+        location_array = np.array([location.x, location.y, location.z])
+        if FOI[2][0] < location_array[0] < FOI[0][0]:
+            if FOI[1][1] < location_array[1] < FOI[0][1]:
                 return True
         return False
     
@@ -490,7 +502,7 @@ class StaticAttackScenario(object):
         print("THETA: ", theta)
         print("FW car: ", car_forward)
         print("FD PED :", ped_forward)
-        patch_pos = carla.Transform(carla.Location(x=np.cos(theta)*0.3, y=np.sin(theta)*0.3, z=0.45), carla.Rotation(yaw=theta_deg))
+        patch_pos = carla.Transform(carla.Location(x=np.cos(theta)*0.3, y=np.sin(theta)*0.3, z=0.0), carla.Rotation(yaw=theta_deg))
         for i in range(1,len(self.pedestrian_list),4):
             if self.pedestrian_list[i] == actor.id:
                 print("Spawning")
@@ -570,6 +582,7 @@ class StaticAttackScenario(object):
             for i in range(int(len(self.pedestrian_list)/4)):
                 in_FOI.append(False)
 
+            areas = []
 
             while True:
                 self.world.tick()
@@ -588,9 +601,8 @@ class StaticAttackScenario(object):
                 FOI = self.get_FOI()
 
                 for i in range(1, len(self.pedestrian_list), 4):
-                    if self.is_in_FOI(all_pedestrians[i], FOI):
+                    if self.is_in_FOI(all_pedestrians[i].get_location(), FOI):
                         if not(in_FOI[int(i/4)]):
-                            print("SPAAAAAAWN")
                             self.spawn_patch(all_pedestrians[i])
                             in_FOI[int(i/4)] = True
                     else:
@@ -616,7 +628,8 @@ class StaticAttackScenario(object):
 
                 bounding_boxes, bb_img = GTBoundingBoxes.get_bounding_boxes(self.world, self.car, self.camera, self.K, labels, bb_img)
 
-                for bb_verts in bounding_boxes:
+                for bb_dict in bounding_boxes:
+                    bb_verts = bb_dict["vertices"]
                     if bb_verts:
                         bb_cocoFormat = [bb_verts[0], bb_verts[1], bb_verts[2]-bb_verts[0], bb_verts[3]-bb_verts[1]]
                         category = self.objectlabel2categoryid[bb_verts[-1]]
@@ -627,7 +640,7 @@ class StaticAttackScenario(object):
                             "category_id": category,
                             "image_id": frame_number,
                             "bbox": bb_cocoFormat
-                        })
+                        })                
 
                 cv2.imwrite(os.path.join(OUTPUT_FOLDER, frame_file), img)
 
@@ -670,6 +683,13 @@ class StaticAttackScenario(object):
             print("Saving annotations to json file.")
             with open(os.path.join(OUTPUT_FOLDER, 'annotations.json'), 'w') as json_file:
                 json.dump(self.ground_truth_annotations, json_file)
+
+            average_area = 0
+            for area in AREAS:
+                average_area += area
+            average_area = average_area/len(AREAS)
+
+            print(average_area)
 
 
 if __name__ == "__main__":
