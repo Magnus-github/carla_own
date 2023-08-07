@@ -59,6 +59,7 @@ PEDESTRIAN_SPAWN_LIST = [carla.Transform(carla.Location(x=-32.164324, y=-75.2039
 
 
 AREAS = []
+DEPTHS = []
 # =============================================================================
 # -- get bounding boxes -------------------------------------------------------
 # =============================================================================
@@ -117,8 +118,8 @@ class GTBoundingBoxes(object):
             if forward_vec.dot(ray) > 1:
                 verts = [v for v in bb.get_world_vertices(carla.Transform())]
 
-                area = bb.extent.x*2 * bb.extent.z*2
-                AREAS.append(area)
+                # area = bb.extent.x*2 * bb.extent.z*2
+                # AREAS.append(area)
 
                 x_max = -10000
                 x_min = 10000
@@ -608,6 +609,7 @@ class StaticAttackScenario(object):
                     else:
                         if in_FOI[int(i/4)]:
                             in_FOI[int(i/4)] = False
+
                 
                 frame_number += 1
 
@@ -640,7 +642,14 @@ class StaticAttackScenario(object):
                             "category_id": category,
                             "image_id": frame_number,
                             "bbox": bb_cocoFormat
-                        })                
+                        })
+
+                    if "location" in bb_dict.keys():
+                        bb_loc = bb_dict["location"]
+                        print(bb_loc)
+                        if self.is_in_FOI(bb_loc, FOI) and self.car.is_at_traffic_light():
+                            AREAS.append(math.sqrt(0.2*bb_cocoFormat[2]*bb_cocoFormat[3]))
+                            DEPTHS.append(abs(bb.location.x -  self.car.get_transform().location.x))         
 
                 cv2.imwrite(os.path.join(OUTPUT_FOLDER, frame_file), img)
 
@@ -684,12 +693,19 @@ class StaticAttackScenario(object):
             with open(os.path.join(OUTPUT_FOLDER, 'annotations.json'), 'w') as json_file:
                 json.dump(self.ground_truth_annotations, json_file)
 
-            average_area = 0
-            for area in AREAS:
-                average_area += area
-            average_area = average_area/len(AREAS)
+            avg_sidelength = 0
+            avg_depth = 0
+            for l, d in zip(AREAS, DEPTHS):
+                avg_sidelength += l
+                avg_depth += d
+            avg_sidelength = avg_sidelength/len(AREAS)
+            avg_depth = avg_depth/len(DEPTHS)
 
-            print(average_area)
+            print("AVERAGE SIDELENGTH: ",avg_sidelength)
+            print("AVERAGE DEPTH: ",avg_depth)
+
+            avg_sidelength_wrld = 7 * avg_sidelength / self.K[0,0]
+            print("SIDELENGTH WRLD: ", avg_sidelength_wrld)
 
 
 if __name__ == "__main__":
