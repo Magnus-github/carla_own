@@ -187,7 +187,7 @@ class GTBoundingBoxes(object):
 
 
 class GetSimPatch(object):
-    def __init__(self) -> None:
+    def __init__(self):
         self.client = None
         self.world = None
         self.bp_lib = None
@@ -353,7 +353,8 @@ class GetSimPatch(object):
             self.world = self.client.get_world()
             self.map = self.world.get_map()
             self.bp_lib = self.world.get_blueprint_library()
-            spectator = self.world.get_spectator()
+            # spectator = self.world.get_spectator()
+            # print("Let's go!")
 
             self.world.reset_all_traffic_lights()
 
@@ -361,7 +362,9 @@ class GetSimPatch(object):
 
             spawn_points = self.map.get_spawn_points()
 
+            print("Spawning the ego-vehicle and camera...")
             self.spawn_ego(EGO_SPAWN_POINT)
+            print("Done!")
 
             self.world.tick()
 

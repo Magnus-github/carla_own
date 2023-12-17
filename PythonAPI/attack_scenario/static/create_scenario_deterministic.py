@@ -52,7 +52,7 @@ except ImportError:
 parser = argparse.ArgumentParser()
 parser.add_argument("--single",action='store_true',help="perfrom single patch attacks")
 parser.add_argument("--double",action='store_true',help="perfrom double patch attacks")
-parser.add_argument("--output_dir",default="_test/",type=str,help="relative directory to save frames")
+parser.add_argument("--output_dir",default="_test1/",type=str,help="relative directory to save frames")
 args = parser.parse_args()
 
 if args.single and args.double:
@@ -450,7 +450,7 @@ class StaticAttackScenario(object):
     def spawn_static_attack_parked(self):
         parked_vehicles = self.world.get_environment_objects(carla.CityObjectLabel.Car)
         patch_bp = self.bp_lib.find('static.prop.staticattack')
-        spectator = self.world.get_spectator()
+        # spectator = self.world.get_spectator()
         for parked_car in parked_vehicles:
             bb = parked_car.bounding_box
             patch_pos = carla.Transform(carla.Location(x=bb.location.x+bb.extent.x, y=bb.location.y,z=bb.location.z))
@@ -512,8 +512,9 @@ class StaticAttackScenario(object):
                 return True
         return False
     
-    def spawn_patch(self, actor):
+    def spawn_patch(self, actor, frame_number, attack=True):
         patch_bp = self.bp_lib.find('static.prop.staticattackpedestrian')
+        # base_bp = self.bp_lib.find('static.prop.staticattackbase')
         fw = self.car.get_transform().rotation.get_forward_vector()
         car_forward = np.array([fw.x, fw.y])
         ped_wrld_loc = actor.get_transform().location
@@ -530,10 +531,10 @@ class StaticAttackScenario(object):
         fw_p = actor.get_transform().rotation.get_forward_vector()
         ped_forward = np.array([fw_p.x, fw_p.y])
         theta = np.arctan2(ped_forward[1], ped_forward[0]) - np.arctan2(car_forward[1], car_forward[0])
-        if theta > math.pi:
-            theta -= 2*math.pi
-        elif theta <= -math.pi:
-            theta += 2*math.pi
+        # if theta > math.pi:
+        #     theta -= 2*math.pi
+        # elif theta <= -math.pi:
+        #     theta += 2*math.pi
         theta_deg = np.rad2deg(theta)
         angle = theta_deg+alpha_deg
         if angle > 180:
@@ -541,17 +542,17 @@ class StaticAttackScenario(object):
         elif angle < -180:
             angle += 360
         # print("ANGLE: ", -angle)
-        patch_pos = carla.Transform(carla.Location(x=np.cos(theta)*0.3, y=np.sin(theta)*0.3, z=0.0), carla.Rotation(yaw=angle))
+        if attack:
+            patch_pos = carla.Transform(carla.Location(x=np.cos(theta)*0.3, y=np.sin(theta)*0.3, z=0.0), carla.Rotation(yaw=angle))
+        else:
+            patch_pos = carla.Transform(carla.Location(x=-0.2, y=0.0, z=-10.0), carla.Rotation(yaw=angle))
         for i in range(1,len(self.pedestrian_list),4):
             if self.pedestrian_list[i] == actor.id:
-                print("Spawning")
+                print("Spawning patch")
                 patch = self.world.spawn_actor(patch_bp, patch_pos, attach_to=actor)
                 pseudo_patch = self.world.get_actor(self.pedestrian_list[i+1])
-                # print(self.pedestrian_list[i+1])
-                # print("OLD PSEUDO: ",pseudo_patch)
                 pseudo_patch.destroy()
                 self.pedestrian_list[i+1] = patch.id
-                # print("NEW PATCH: ",patch.id)
 
     def spawn_double_patch(self, actor, delta=0.1):
         patch_bp = self.bp_lib.find('static.prop.staticattackpedestrian')
@@ -669,12 +670,13 @@ class StaticAttackScenario(object):
 
     def game_loop(self, attack):
         try: 
+            print("HIII")
             self.client = carla.Client("localhost", 2000)
-            self.client.set_timeout(2.0)
+            self.client.set_timeout(10.0)
             self.world = self.client.get_world()
             self.map = self.world.get_map()
             self.bp_lib = self.world.get_blueprint_library()
-            spectator = self.world.get_spectator()
+            # spectator = self.world.get_spectator()
             # tf = carla.Transform(carla.Location(x=-32.164324, y=-75.203926, z=1.0), carla.Rotation(pitch=0.000000, yaw=0.000000, roll=0.000000))
             # spectator.set_transform(tf)
             labels = [carla.CityObjectLabel.Car,
@@ -686,7 +688,7 @@ class StaticAttackScenario(object):
                       carla.CityObjectLabel.Train,
                       carla.CityObjectLabel.Pedestrians]
 
-            self.spawn_static_attack_parked()
+            # self.spawn_static_attack_parked()
 
             self.world.reset_all_traffic_lights()
 
@@ -756,26 +758,25 @@ class StaticAttackScenario(object):
 
                 FOI = self.get_FOI()
 
-                if attack:
-                    for i in range(1, len(self.pedestrian_list), 4):
-                        if self.is_in_FOI(all_pedestrians[i], FOI):
-                            if not(in_FOI[int(i/4)]):
+                for i in range(1, len(self.pedestrian_list), 4):
+                    if self.is_in_FOI(all_pedestrians[i], FOI):
+                        if not(in_FOI[int(i/4)]):
 
-                                if args.single:
-                                    self.spawn_patch(all_pedestrians[i])
-                                elif args.double:
-                                    self.spawn_double_patch(all_pedestrians[i])
-                                else:
-                                    self.spawn_patch(all_pedestrians[i])
+                            if args.single:
+                                self.spawn_patch(all_pedestrians[i], frame_number, attack)
+                            elif args.double:
+                                self.spawn_double_patch(all_pedestrians[i])
+                            else:
+                                self.spawn_patch(all_pedestrians[i],frame_number, attack)
 
-                                in_FOI[int(i/4)] = True
-                            # elif in_FOI[int(i/4)]:
-                            #     # pass
-                            #     self.get_patch_from_img(img, self.pedestrian_list[i+1])
-                            #     self.spawn_patch(all_pedestrians[i])
-                        else:
-                            if in_FOI[int(i/4)]:
-                                in_FOI[int(i/4)] = False
+                            in_FOI[int(i/4)] = True
+                        # elif in_FOI[int(i/4)]:
+                        # #     # pass
+                        # #     self.get_patch_from_img(img, self.pedestrian_list[i+1])
+                        #     self.spawn_patch(all_pedestrians[i])
+                    else:
+                        if in_FOI[int(i/4)]:
+                            in_FOI[int(i/4)] = False
 
                 # Save frame to annotations json
                 frame_file = "{:05d}.png".format(frame_number)
@@ -865,16 +866,16 @@ if __name__ == "__main__":
         attack_scenario = StaticAttackScenario()
         attack_scenario.game_loop(attack=True)
 
-        # patch = cv2.imread(PATCH_PATH, cv2.IMREAD_UNCHANGED)
-        # cv2.imwrite(TEXTURE_PATH, patch)
+        # # patch = cv2.imread(PATCH_PATH, cv2.IMREAD_UNCHANGED)
+        # # cv2.imwrite(TEXTURE_PATH, patch)
 
-        # result = subprocess.run(["/home/magnus/carla_own/PythonAPI/attack_scenario/static/shellscript.sh"], shell=True, text=True)
-        # # print(result)
+        # # result = subprocess.run(["/home/magnus/carla_own/PythonAPI/attack_scenario/static/shellscript.sh"], shell=True, text=True)
+        # # # print(result)
 
-        time.sleep(3)
+        # time.sleep(3)
 
-        attack_scenario.client.reload_world()
-        attack_scenario = StaticAttackScenario()
-        attack_scenario.game_loop(attack=False)
+        # # attack_scenario.client.reload_world()
+        # attack_scenario = StaticAttackScenario()
+        # attack_scenario.game_loop(attack=False)
     finally:
         print("EXIT!")

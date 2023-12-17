@@ -47,6 +47,18 @@ Spawning patch at beginning + increased size to 0.447m (from 0.4m) + new create 
 | New patch        | Double      | 28.5%         | 50.1%          | 50.3%              |
 
 
+
+## New tests (patch trained with AE):
+|                  |             | Static Attack | Dynamic Attack | Postprocess Attack |
+|------------------|-------------|---------------|----------------|--------------------|
+| New patch        | Single      | 2.5%          | -              | -                  |
+
+# trained with AE starting from the most recent patch that we had:
+|                  |             | Static Attack | Dynamic Attack | Postprocess Attack |
+|------------------|-------------|---------------|----------------|--------------------|
+| New patch        | Single      | 7.0%          | -              | -                  |
+
+
 TODO:
 - check performance of static without spawning at beginning but keeping everything else the same
 - run tests with new script on dyndamic and post process attacks
